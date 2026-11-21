@@ -13,7 +13,7 @@ For these commands:
 - options and output change only with a version bump and an entry in the [changelog](changelog.md)
   (before 1.0, a breaking change bumps the minor version);
 - every documented behaviour has a golden case against the tool it replaces, checked on every commit;
-- the nightly workflow (dispatched by hand) covers them with multi-GB inputs, memory ceilings and a
+- the nightly workflow, which runs weekly, covers them with multi-GB inputs, memory ceilings and a
   live comparison with the pinned reference tools.
 
 ## Experimental

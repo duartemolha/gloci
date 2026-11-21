@@ -37,8 +37,9 @@ nothing, whatever `dry_run` says.
    Python package takes its version from Cargo, so it needs no edit of its own. Move the
    `[Unreleased]` entries of `CHANGELOG.md` under the new version and date.
 2. `cargo xtask release-check` passes.
-3. CI is green on `main`. The nightly workflow (large files, differential, benchmark, fuzz and
-   `conda-recipe`) runs only when dispatched (D175): dispatch it first when those checks are wanted.
+3. CI is green on `main`, and so is the latest run of the nightly workflow (large files, differential,
+   benchmark, fuzz and `conda-recipe`). It runs weekly (D175); dispatch it for a fresh run when the
+   week's commits warrant one.
 4. Re-measure performance on a quiet machine and compare with the previous release's results (results are
    kept per release).
 5. Tag `v<version>` and push the tag. The release workflow and the docs workflow run.

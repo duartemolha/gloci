@@ -771,7 +771,7 @@ Reference machine: 8-core x86_64, NVMe, 32 GB RAM. Baselines: bedtools 2.31.x, b
 | `sort` | faster than `sort-bed`; within 1.5× of GNU `sort --parallel`; obeys `--max-mem` |
 | Memory, streaming ops on sorted input | flat as input grows; ≤ ~200 MB RSS excluding active-set depth |
 
-### 9.2 Benchmark suite (lives in `xtask`, run by the nightly workflow when it is dispatched, D175)
+### 9.2 Benchmark suite (lives in `xtask`, run weekly by the nightly workflow, D175)
 
 - **Public data:**
   - 1000 Genomes 30x chr20 VCF/BCF.
