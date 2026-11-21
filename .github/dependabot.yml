@@ -1,0 +1,63 @@
+# Weekly version updates (D177). Minor and patch updates come as one pull request per ecosystem;
+# each major update comes on its own, to be judged by itself. New releases wait a week (cooldown)
+# before they are proposed. Security updates are not delayed and are configured in the
+# repository settings.
+version: 2
+updates:
+  # Cargo.lock for the whole workspace. A pull request changes crate versions, so CI's
+  # `cargo xtask licenses --check` fails until THIRD-PARTY-LICENSES is regenerated on its branch:
+  # `gh pr checkout N && cargo xtask licenses`, then commit and push (releasing.md).
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    cooldown:
+      default-days: 7
+    labels: ["dependencies"]
+    commit-message:
+      prefix: "deps(cargo)"
+    groups:
+      cargo-minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  # The actions in .github/workflows, pinned by commit SHA with the version in a comment;
+  # Dependabot updates both, in every workflow at once (xtask/tests/workflows.rs requires one SHA
+  # per action).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    cooldown:
+      default-days: 7
+    labels: ["dependencies"]
+    commit-message:
+      prefix: "deps(actions)"
+    groups:
+      actions-minor-and-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      # Pinned to a commit of its default branch; the Rust version it installs is bumped by the
+      # procedure in releasing.md ("Bumping the Rust toolchain").
+      - dependency-name: "dtolnay/rust-toolchain"
+
+  # The Python test tools (requirements-ci.txt, requirements-polars-only.txt) and the build
+  # requirements of the Python package.
+  - package-ecosystem: "pip"
+    directory: "/crates/gloci-py"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    cooldown:
+      default-days: 7
+    labels: ["dependencies", "python"]
+    commit-message:
+      prefix: "deps(py)"
+    groups:
+      python-minor-and-patch:
+        update-types: ["minor", "patch"]
+    # The floors job installs the lowest versions pyproject.toml supports, on purpose; a bump
+    # there would no longer test them (xtask/tests/workflows.rs keeps the two in step).
+    exclude-paths:
+      - "requirements-floors.txt"

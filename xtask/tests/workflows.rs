@@ -1076,3 +1076,28 @@ fn rust_toolchain_pin_and_msrv_agree_everywhere() {
 
     assert!(problems.is_empty(), "\n{}\n", problems.join("\n"));
 }
+
+#[test]
+fn dependabot_updates_weekly_and_leaves_the_floors_alone() {
+    // D177: weekly version updates for the three ecosystems, minor and patch grouped.
+    let root = xtask::diff::workspace_root();
+    let d = fs::read_to_string(root.join(".github/dependabot.yml")).unwrap();
+    for eco in ["cargo", "github-actions", "pip"] {
+        assert!(
+            d.contains(&format!("package-ecosystem: \"{eco}\"")),
+            "dependabot.yml lacks {eco}"
+        );
+    }
+    assert_eq!(
+        d.matches("interval: \"weekly\"").count(),
+        3,
+        "every ecosystem is weekly"
+    );
+    assert_eq!(d.matches("update-types: [\"minor\", \"patch\"]").count(), 3);
+    assert_eq!(d.matches("cooldown:").count(), 3);
+    // The floors job's pins are the lowest supported versions, not to be bumped.
+    assert!(d.contains("directory: \"/crates/gloci-py\""));
+    assert!(d.contains("exclude-paths:\n      - \"requirements-floors.txt\""));
+    // The Rust version follows releasing.md's toolchain procedure.
+    assert!(d.contains("- dependency-name: \"dtolnay/rust-toolchain\""));
+}

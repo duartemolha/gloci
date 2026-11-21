@@ -57,6 +57,28 @@ nothing, whatever `dry_run` says.
 5. Tag `v<version>` and push the tag. The release workflow and the docs workflow run.
 6. Check the Release assets against `SHA256SUMS`, then follow the steps for the channels that are enabled.
 
+## Dependency updates
+
+Dependabot proposes version updates every Monday (`.github/dependabot.yml`, D177): one pull request
+per ecosystem (Cargo, GitHub Actions, the Python test tools) for the minor and patch updates, and one
+for each major update. A release waits a week after it is published before Dependabot proposes it.
+
+- **Cargo:** the pull request changes crate versions, so CI's licence check fails until
+  `THIRD-PARTY-LICENSES` is regenerated on its branch:
+
+  ```sh
+  gh pr checkout <number>
+  cargo xtask licenses
+  git commit -am "deps(cargo): regenerate THIRD-PARTY-LICENSES" && git push
+  ```
+
+  CI is not given a token that could do this by itself: the job would compile the updated crates
+  with write access to the repository.
+- **Major updates:** read the release notes before merging. Some majors change behaviour (for
+  example, `actions/download-artifact` v8 stops unzipping files and fails on a checksum mismatch).
+- **Left alone on purpose:** `requirements-floors.txt` (it pins the lowest supported versions) and
+  `dtolnay/rust-toolchain` (the Rust version follows the procedure below).
+
 ## Bumping the Rust toolchain
 
 CI builds with the exact Rust version named in `rust-toolchain.toml`, so a new Rust release (and its new
