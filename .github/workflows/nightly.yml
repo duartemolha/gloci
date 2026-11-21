@@ -115,7 +115,7 @@ jobs:
           cargo xtask bench --check-targets --image gloci-bench:p1
           --gloci target/x86_64-unknown-linux-musl/release/gloci
           --wheel "$(ls wheel-dist/*.whl)"
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: bench-results
@@ -187,7 +187,7 @@ jobs:
             cargo +nightly fuzz run --fuzz-dir fuzz "$t" -- -max_total_time=180 $dict || rc=1
           done
           exit $rc
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
           name: fuzz-artifacts
