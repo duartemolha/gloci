@@ -92,7 +92,7 @@ jobs:
       - name: Build the benchmark container image
         run: docker build -t gloci-bench:p1 -f xtask/docker/Dockerfile.bench xtask/docker
       - name: Cache benchmark datasets
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: target/bench-cache
           key: bench-datasets-${{ hashFiles('xtask/bench/datasets.toml') }}
@@ -167,7 +167,7 @@ jobs:
           workspaces: fuzz
       - run: cargo +nightly install cargo-fuzz --locked
       - name: Cache fuzz corpus
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: fuzz/corpus
           key: fuzz-corpus-${{ runner.os }}-${{ github.run_id }}
