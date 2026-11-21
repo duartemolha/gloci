@@ -808,7 +808,7 @@ SOFTWARE.
 
 ================================================================================
 anyhow 1.0.104 (MIT OR Apache-2.0)
-itoa 1.0.18 (MIT OR Apache-2.0)
+itoa 1.0.19 (MIT OR Apache-2.0)
 proc-macro2 1.0.107 (MIT OR Apache-2.0)
 quote 1.0.47 (MIT OR Apache-2.0)
 serde 1.0.229 (MIT OR Apache-2.0)
@@ -17202,7 +17202,7 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
 ================================================================================
-rust-lapper 2.0.0 (MIT)
+rust-lapper 2.0.1 (MIT)
 ================================================================================
 
 MIT License
