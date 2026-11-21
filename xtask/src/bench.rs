@@ -340,9 +340,17 @@ pub fn bench_cache_dir(data_dir: &Path) -> PathBuf {
 /// The hex digest of `path` with `algorithm` (`sha256` or `md5`).
 fn digest_file(path: &Path, algorithm: &str) -> Result<String> {
     use sha2::Digest;
-    fn hash<D: Digest + std::io::Write>(path: &Path, mut d: D) -> Result<String> {
+    fn hash<D: Digest>(path: &Path, mut d: D) -> Result<String> {
+        use std::io::Read;
         let mut f = std::fs::File::open(path)?;
-        std::io::copy(&mut f, &mut d)?;
+        let mut buf = vec![0u8; 1 << 16];
+        loop {
+            let n = f.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            d.update(&buf[..n]);
+        }
         Ok(d.finalize()
             .iter()
             .map(|b| format!("{b:02x}"))

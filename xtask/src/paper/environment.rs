@@ -181,8 +181,17 @@ fn tool_names(cases: &[Case]) -> BTreeSet<String> {
 }
 
 pub fn sha256_file(path: &Path) -> Result<String> {
+    use std::io::Read;
     let mut h = Sha256::new();
-    std::io::copy(&mut std::fs::File::open(path)?, &mut h)?;
+    let mut f = std::fs::File::open(path)?;
+    let mut buf = vec![0u8; 1 << 16];
+    loop {
+        let n = f.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        h.update(&buf[..n]);
+    }
     Ok(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 

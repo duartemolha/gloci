@@ -25,7 +25,8 @@ fn opts() -> DictOptions {
 fn md5_of(line: &[u8]) -> (String, u64) {
     let mut m = Md5::new();
     let n = normalized_md5(&mut m, line);
-    (format!("{:x}", m.finalize()), n)
+    let hex = m.finalize().iter().map(|b| format!("{b:02x}")).collect();
+    (hex, n)
 }
 
 #[test]

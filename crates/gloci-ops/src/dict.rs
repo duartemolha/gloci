@@ -91,7 +91,10 @@ fn write_sq(
 ) -> std::io::Result<()> {
     out.write_all(b"@SQ\tSN:")?;
     out.write_all(&c.name)?;
-    write!(out, "\tLN:{}\tM5:{:x}", c.len, c.md5.finalize())?;
+    write!(out, "\tLN:{}\tM5:", c.len)?;
+    for b in c.md5.finalize() {
+        write!(out, "{b:02x}")?;
+    }
     if o.alt.as_ref().is_some_and(|a| a.contains(&c.name)) {
         out.write_all(b"\tAH:*")?;
     }

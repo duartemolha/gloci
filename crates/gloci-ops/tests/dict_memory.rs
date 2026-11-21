@@ -85,7 +85,10 @@ fn dict_streams() {
     std::fs::write(&p, &text).unwrap();
     let (got, held) = measure(&p);
     use md5::{Digest, Md5};
-    let want = format!("{:x}", Md5::digest(vec![b'A'; n]));
+    let want: String = Md5::digest(vec![b'A'; n])
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
     assert_eq!(got, format!("@SQ\tSN:a\tLN:{n}\tM5:{want}\tUR:x\n"));
     assert!(held < 3 << 20, "held {held} bytes");
 }
