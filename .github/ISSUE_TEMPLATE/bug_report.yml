@@ -1,0 +1,62 @@
+name: Bug report
+description: gloci gives a wrong result, fails, or behaves differently from the tool it replaces.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting. If gloci's output differs from bedtools, bedops, bcftools, vcftools, samtools or CrossMap, please check [docs/differences.md](https://github.com/duartemolha/gloci/blob/main/docs/differences.md) first: the differences made on purpose are listed there.
+        For a security problem, use a [private report](https://github.com/duartemolha/gloci/security/advisories/new) instead.
+  - type: input
+    id: version
+    attributes:
+      label: gloci version
+      description: The output of `gloci --version` (or `python -c "import gloci; print(gloci.__version__)"`).
+      placeholder: gloci 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How gloci was installed
+      options:
+        - GitHub Release archive
+        - cargo install
+        - pip (Python package)
+        - bioconda
+        - container image (ghcr.io)
+        - built from source
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      placeholder: Linux x86_64, macOS arm64, WSL …
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: The exact command line, or the Python code.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: input
+    attributes:
+      label: Input
+      description: A small input that shows the problem (a few lines of BED or VCF are often enough). Attach larger files.
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+      description: The output or the full error message, and the exit status if it matters.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: If gloci replaces another tool here, that tool's command and its output on the same input.
+    validations:
+      required: true

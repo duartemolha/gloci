@@ -1,0 +1,26 @@
+name: Feature request
+description: A command, option or format gloci does not have yet.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The [migration tables](https://github.com/duartemolha/gloci/blob/main/docs/migration.md) list what gloci covers of bedtools, bedops, bcftools, vcftools and samtools, including the rows marked "not planned".
+  - type: textarea
+    id: need
+    attributes:
+      label: What you want to do
+      description: The task, and the data it is for.
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: How you do it today
+      description: The tool and command you use now, if any (for example a bedtools or bcftools command line).
+      render: shell
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What gloci could offer
+      description: A command, an option or a Python method, if you have one in mind.
