@@ -63,6 +63,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
+      # Signing and storing the build provenance (D176).
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master (2026-07-16)
@@ -118,6 +121,13 @@ jobs:
           # The notices of the crates compiled into the binary (cargo xtask licenses).
           cp THIRD-PARTY-LICENSES "dist/${STAGE}/"
           tar -C dist -czf "dist/${STAGE}.tar.gz" "${STAGE}"
+      # Build provenance (D176), on a tag push only: signed in the job that builds the file,
+      # before anything is published. Check with `gh attestation verify FILE -R duartemolha/gloci`.
+      - name: Attest the archive's build provenance
+        if: github.event_name == 'push'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/gloci-*-${{ matrix.target }}.tar.gz
       - name: Upload release archive
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
@@ -155,6 +165,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
+      # Signing and storing the build provenance (D176).
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - name: Build the wheel
@@ -168,6 +181,13 @@ jobs:
           manylinux: ${{ matrix.manylinux }}
           rust-toolchain: "1.100.0"
           args: --profile release-py --locked -m crates/gloci-py/Cargo.toml --out dist
+      # Build provenance (D176), on a tag push only: signed in the job that builds the file,
+      # before anything is published. Check with `gh attestation verify FILE -R duartemolha/gloci`.
+      - name: Attest the wheel's build provenance
+        if: github.event_name == 'push'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/*.whl
       - name: Upload wheel
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
@@ -180,6 +200,9 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+      # Signing and storing the build provenance (D176).
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - name: Build the sdist
@@ -188,6 +211,13 @@ jobs:
           maturin-version: v1.16.0
           command: sdist
           args: -m crates/gloci-py/Cargo.toml --out dist
+      # Build provenance (D176), on a tag push only: signed in the job that builds the file,
+      # before anything is published. Check with `gh attestation verify FILE -R duartemolha/gloci`.
+      - name: Attest the sdist's build provenance
+        if: github.event_name == 'push'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/*.tar.gz
       - name: Upload sdist
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:

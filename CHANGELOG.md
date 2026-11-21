@@ -7,6 +7,10 @@ the minor version).
 
 ## [Unreleased]
 
+### Added
+
+- The release files (the archives, the wheels and the sdist) carry signed build-provenance attestations, so a download can be traced to the commit and the workflow run that built it: `gh attestation verify FILE -R duartemolha/gloci`.
+
 ### Security
 
 - The `arrow` and `pandas` extras need pyarrow 23.0.1 or later (they took 15): pyarrow before 23.0.1 can use memory after freeing it when it reads an Arrow IPC file with pre-buffering (CVE-2026-25087, GHSA-rgxp-2hwp-jwgg). gloci never reads IPC files through pyarrow (it hands records over through the Arrow C stream interface), but it no longer accepts the affected versions. The CI job that tests the lowest supported versions runs on 23.0.1.

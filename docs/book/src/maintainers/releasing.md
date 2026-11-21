@@ -15,10 +15,22 @@ A push of a `v*` tag runs `.github/workflows/release.yml`:
    licence and `THIRD-PARTY-LICENSES`.
 3. abi3 wheels (manylinux2014 x86_64 and aarch64, macOS arm64) and an sdist, each smoke-tested on its
    platform (the wheels on the oldest and newest supported CPython).
+   Each archive, wheel and the sdist gets a signed build-provenance attestation in the job that builds
+   it, before anything is published (D176); a manual run attests nothing.
 4. The GitHub Release: the archives, wheels, `SHA256SUMS`, the notes from the `CHANGELOG.md` section, and
    `conda-recipes.tar.gz` (the bioconda recipes rendered with the real checksums).
 5. Gated publishing, each step off until the owner turns it on (see below): PyPI, crates.io and the
    `ghcr.io` image.
+
+## Repository rules
+
+Two rulesets protect what a release depends on (D176). They apply to everyone, the owner included:
+
+- **`main`:** no force pushes and no deletion. Direct pushes are allowed.
+- **Release tags (`v*`):** no deletion and no moving. A published version always points at the commit
+  its files were built from; a wrong release is fixed by a new version, never by moving its tag.
+
+They live under the repository's Settings, Rules, Rulesets, where the owner can change them.
 
 `.github/workflows/docs.yml` builds this book on every pull request and deploys it to GitHub Pages only
 on a `v*` tag push, and only when the repository variable `GLOCI_PUBLISH_PAGES` is `true`.

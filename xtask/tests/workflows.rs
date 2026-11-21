@@ -119,6 +119,26 @@ fn release_workflow_and_dockerfile_are_valid() {
             "release.yml must contain `{needle}`"
         );
     }
+    // D176: the archives, wheels and sdist are attested in the jobs that build them, on a tag
+    // push only, so a failed attestation stops the release before anything is published.
+    for job in ["build", "wheels", "sdist"] {
+        let body = job_body(&release_yml, job);
+        assert!(
+            body.contains("attestations: write") && body.contains("id-token: write"),
+            "release.yml {job} needs the attestation permissions"
+        );
+        assert!(
+            body.contains("uses: actions/attest@")
+                && body.contains("if: github.event_name == 'push'"),
+            "release.yml {job} must attest its files on a tag push"
+        );
+    }
+    for job in ["publish-pypi", "publish-crates", "release"] {
+        assert!(
+            !job_body(&release_yml, job).contains("actions/attest@"),
+            "attestations belong in the build jobs, before publishing, not in {job}"
+        );
+    }
 
     // The tag must equal the workspace version, and the release is created
     // only after the image push (the last step of the publish job).

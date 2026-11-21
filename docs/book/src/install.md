@@ -26,6 +26,14 @@ usage guide), `docs/` (the migration tables and the differences it points to), `
 licence. Each release lists a `SHA256SUMS` file; check the archive
 with `sha256sum -c --ignore-missing SHA256SUMS`.
 
+Releases after 0.1.0 also carry a signed build-provenance attestation for each archive, wheel and the
+sdist, which shows that the file was built by gloci's release workflow from the tagged commit. Check
+one with the GitHub CLI:
+
+```sh
+gh attestation verify gloci-<tag>-x86_64-unknown-linux-musl.tar.gz -R duartemolha/gloci
+```
+
 ## Python wheels from a GitHub Release
 
 The same Release carries the Python wheels (abi3, so one wheel serves every CPython from 3.10: manylinux2014
