@@ -11,6 +11,10 @@ the minor version).
 
 - The release files (the archives, the wheels and the sdist) carry signed build-provenance attestations, so a download can be traced to the commit and the workflow run that built it: `gh attestation verify FILE -R duartemolha/gloci`.
 
+### Fixed
+
+- The bioconda `py-gloci` package installs on every CPython from 3.10, as the wheels do: the recipe now makes one abi3 build per platform. The first 0.1.0 package installed on Python 3.15 only (bioconda's build 1 of 0.1.0 carries the fix).
+
 ### Security
 
 - The `arrow` and `pandas` extras need pyarrow 23.0.1 or later (they took 15): pyarrow before 23.0.1 can use memory after freeing it when it reads an Arrow IPC file with pre-buffering (CVE-2026-25087, GHSA-rgxp-2hwp-jwgg). gloci never reads IPC files through pyarrow (it hands records over through the Arrow C stream interface), but it no longer accepts the affected versions. The CI job that tests the lowest supported versions runs on 23.0.1.

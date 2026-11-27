@@ -150,9 +150,30 @@ fn py_recipe_installs_no_cli() {
     assert!(t.contains("import gloci"));
     assert!(t.contains(".count()"));
     let host = block(&t, "requirements").join("\n");
-    for need in ["python >=3.10", "pip", "maturin >=1.9.4,<2"] {
-        assert!(host.contains(need), "host requirement {need}\n{host}");
+    for need in [
+        "- python {{ python_min }}",
+        "- python-abi3",
+        "- pip",
+        "- maturin >=1.9.4,<2",
+        "- python >={{ python_min }}",
+    ] {
+        assert!(host.contains(need), "requirement {need}\n{host}");
     }
+    // One abi3 build per platform, as the wheels are (D92): conda-build must not loop over
+    // its Python matrix. A pinned `python >=3.10` in `host` made 0.1.0's first bioconda
+    // build Python 3.15 only.
+    assert!(t.contains("python_version_independent: true"), "{t}");
+    assert!(
+        !host.lines().any(|l| l.trim() == "- python >=3.10"),
+        "pin python through python_min, not a literal floor\n{host}"
+    );
+    let cargo =
+        fs::read_to_string(xtask::diff::workspace_root().join("crates/gloci-py/Cargo.toml"))
+            .unwrap();
+    assert!(
+        cargo.contains("\"abi3-py310\""),
+        "python_version_independent needs the extension built for the stable ABI"
+    );
     // The wheel bundles every dependency's code, so it ships their licences like the CLI does,
     // and the bundle tool is run (a build requirement nothing runs is dead weight).
     assert!(
@@ -178,8 +199,11 @@ fn py_recipe_installs_no_cli() {
         "{t}"
     );
     assert!(!t.contains("run_exports") || t.contains("python"), "{t}");
-    // Like the release, no Intel macOS build of the library.
-    assert!(t.contains("skip: true  # [osx and x86_64]"), "{t}");
+    // Built once, at bioconda's lowest Python; like the release, no Intel macOS build.
+    assert!(
+        t.contains("skip: true  # [not is_python_min or (osx and x86_64)]"),
+        "{t}"
+    );
 }
 
 #[test]
