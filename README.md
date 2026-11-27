@@ -34,7 +34,13 @@ cargo install gloci   # the command line tool, built from source
 pip install gloci     # the Python library
 ```
 
-gloci is not on bioconda yet, so `conda install gloci` does not work today.
+From Bioconda:
+
+```sh
+conda install -c conda-forge -c bioconda gloci      # command-line tool
+conda install -c conda-forge -c bioconda py-gloci   # Python library
+```
+
 A container image is at `ghcr.io/duartemolha/gloci`.
 
 ## Example
