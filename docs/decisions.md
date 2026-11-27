@@ -219,7 +219,7 @@ D79–D98, from the plan "Decisions this plan adds" table.
 
 <a id="d92"></a>**D92** **Wheels:** <ul><li>abi3 for CPython ≥ 3.10;</li><li>manylinux2014 (glibc 2.17) x86_64 and aarch64, and macOS arm64 (11.0);</li><li>an sdist elsewhere (needs Rust ≥ 1.91);</li><li>on Windows, `compile_error!` names WSL.</li></ul>
 
-<a id="d93"></a>**D93** **Bioconda has two recipes.** <ul><li>`gloci` is the CLI. It builds from the tag tarball, has no run requirements, installs man pages and completions, and targets linux-64, linux-aarch64 and osx-arm64.</li><li>`py-gloci` is the library. It builds from the PyPI sdist and ships no `bin/gloci`.</li></ul>The `gloci` name stays with the CLI (§3).
+<a id="d93"></a>**D93** **Bioconda has two recipes.** <ul><li>`gloci` is the CLI. It builds from the tag tarball, has no run requirements, installs man pages and completions, and targets linux-64, linux-aarch64 and osx-arm64.</li><li>`py-gloci` is the library. It builds from the PyPI sdist and ships no `bin/gloci`. It is one abi3 build per platform (`python_version_independent`, built at bioconda's `python_min`), so it installs on every CPython the wheels serve (D92) [amended 2026-11-27: the recipe pinned `python >=3.10` in `host`, so conda-build built 0.1.0's first package for Python 3.15 alone]</li></ul>The `gloci` name stays with the CLI (§3).
 
 <a id="d94"></a>**D94** **The book** is in `docs/book/`. <ul><li>It includes `migration.md`, `differences.md`, `CHANGELOG.md` and the gloci-py `README.md` (which is also the PyPI page).</li><li>The command reference and `SUMMARY.md` are generated and not committed.</li><li>PRs build the book; tags deploy it to Pages.</li></ul>
 
