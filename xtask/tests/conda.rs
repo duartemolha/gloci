@@ -149,7 +149,7 @@ fn py_recipe_installs_no_cli() {
     assert!(t.contains("test ! -e $PREFIX/bin/gloci"), "{t}");
     assert!(t.contains("import gloci"));
     assert!(t.contains(".count()"));
-    let host = block(&t, "requirements").join("\n");
+    let reqs = block(&t, "requirements").join("\n");
     for need in [
         "- python {{ python_min }}",
         "- python-abi3",
@@ -157,15 +157,21 @@ fn py_recipe_installs_no_cli() {
         "- maturin >=1.9.4,<2",
         "- python >={{ python_min }}",
     ] {
-        assert!(host.contains(need), "requirement {need}\n{host}");
+        assert!(reqs.contains(need), "requirement {need}\n{reqs}");
     }
     // One abi3 build per platform, as the wheels are (D92): conda-build must not loop over
     // its Python matrix. A pinned `python >=3.10` in `host` made 0.1.0's first bioconda
     // build Python 3.15 only.
     assert!(t.contains("python_version_independent: true"), "{t}");
     assert!(
-        !host.lines().any(|l| l.trim() == "- python >=3.10"),
-        "pin python through python_min, not a literal floor\n{host}"
+        !reqs.lines().any(|l| l.trim() == "- python >=3.10"),
+        "pin python through python_min, not a literal floor\n{reqs}"
+    );
+    // The recipe tests only at python_min, so it checks the built module is abi3: without
+    // that, a lost abi3 feature would ship a 3.10-only module as a package for every Python.
+    assert!(
+        t.contains("import gloci._native as m; assert m.__file__.endswith('.abi3.so')"),
+        "{t}"
     );
     let cargo =
         fs::read_to_string(xtask::diff::workspace_root().join("crates/gloci-py/Cargo.toml"))
